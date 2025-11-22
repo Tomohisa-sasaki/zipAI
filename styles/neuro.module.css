@@ -1,0 +1,123 @@
+/* NeuroSim Specific Styles */
+
+/* Container Setup */
+.neuroHome {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    background-color: var(--neu-bg, #0b1020);
+    overflow: hidden;
+    color: #fff;
+}
+
+/* Glow Effect Overlay */
+.neuroHome::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80vw;
+    height: 80vh;
+    background: radial-gradient(circle, var(--neu-glow, rgba(80,160,255,0.15)) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Hero Content */
+.heroContent {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10;
+    text-align: center;
+    pointer-events: none; /* Let clicks pass to canvas if needed, but buttons need pointer-events:auto */
+    width: 100%;
+    max-width: 800px;
+    padding: 0 20px;
+}
+
+.title {
+    font-size: 4rem;
+    font-weight: 800;
+    letter-spacing: -0.05em;
+    margin-bottom: 1rem;
+    text-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    opacity: 0;
+    animation: fadeInUps 1s ease-out forwards;
+}
+
+.subtitle {
+    font-size: 1.25rem;
+    color: #94a3b8;
+    margin-bottom: 2.5rem;
+    font-weight: 300;
+    line-height: 1.6;
+    opacity: 0;
+    animation: fadeInUps 1s ease-out 0.3s forwards;
+}
+
+/* Uiverse inspired CTA Button */
+.uiverseCta {
+    pointer-events: auto;
+    display: inline-block;
+    padding: 12px 32px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0));
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 50px;
+    text-decoration: none;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    opacity: 0;
+    animation: fadeInUps 1s ease-out 0.6s forwards;
+    cursor: pointer;
+}
+
+.uiverseCta:hover {
+    transform: translateY(-2px) scale(1.05);
+    background: linear-gradient(135deg, rgba(255,255,255,0.2), rgba(255,255,255,0.05));
+    border-color: var(--neu-accent, #3dd6a0);
+    box-shadow: 0 10px 40px 0 rgba(61, 214, 160, 0.2);
+}
+
+.uiverseCta:focus-visible {
+    outline: 2px solid var(--neu-accent, #3dd6a0);
+    outline-offset: 4px;
+}
+
+/* Footer Disclaimer */
+.disclaimer {
+    position: absolute;
+    bottom: 20px;
+    width: 100%;
+    text-align: center;
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.3);
+    z-index: 10;
+    pointer-events: none;
+}
+
+@keyframes fadeInUps {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 768px) {
+    .title {
+        font-size: 2.5rem;
+    }
+    .subtitle {
+        font-size: 1rem;
+    }
+}
