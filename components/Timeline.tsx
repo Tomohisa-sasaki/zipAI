@@ -27,8 +27,8 @@ const Timeline: React.FC<TimelineProps> = ({ lang, data, themeColor = 'mncc-prim
   const gradientClass = isPurple ? 'from-mncc-purple to-purple-400' : 'from-mncc-primary to-mncc-accent';
 
   return (
-    <div className="relative max-w-4xl mx-auto px-2 md:px-0">
-      <div className={`absolute left-6 md:left-1/2 top-0 bottom-0 w-px bg-gradient-to-b ${isPurple ? 'from-mncc-purple/30' : 'from-mncc-primary/30'} to-transparent pointer-events-none`} />
+    <div className="relative max-w-5xl mx-auto px-3 md:px-0">
+      <div className={`absolute left-6 md:left-1/2 md:-translate-x-1/2 top-0 bottom-0 w-px bg-gradient-to-b ${isPurple ? 'from-mncc-purple/30' : 'from-mncc-primary/30'} to-transparent pointer-events-none`} />
       <div className="space-y-10 relative z-10">
         {data.map((item, index) => {
           const isActive = activeIndex === index;

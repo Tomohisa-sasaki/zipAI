@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Canvas, useThree } from '@react-three/fiber';
 import { Html, useTexture, OrthographicCamera } from '@react-three/drei';
@@ -92,6 +92,18 @@ const PRESET_IMAGES: PresetImage[] = [
             { classId: 'traffic_light', x: 1140, y: 245, w: 40, h: 170, confidence: 0.88 },
             { classId: 'backpack', x: 860, y: 370, w: 40, h: 50, confidence: 0.8 }
         ]
+    },
+    {
+        id: 'street-car',
+        title: 'Downtown Street',
+        description: 'Real photo with car, person, traffic light.',
+        url: 'https://images.unsplash.com/photo-1489515217757-5fd1be406fef?q=80&w=1600&auto=format&fit=crop',
+        dims: { w: 1600, h: 900 },
+        annotations: [
+            { classId: 'car', x: 900, y: 620, w: 520, h: 260, confidence: 0.93 },
+            { classId: 'person', x: 720, y: 560, w: 110, h: 210, confidence: 0.9 },
+            { classId: 'traffic_light', x: 1210, y: 320, w: 55, h: 180, confidence: 0.87 },
+        ]
     }
 ];
 
@@ -132,7 +144,7 @@ const BackgroundImage = ({ url, onLoad }: { url: string, onLoad: (w: number, h: 
   );
 };
 
-const BoundingBox = ({ ann, isSelected, onSelect, imgDims }: { ann: Annotation, isSelected: boolean, onSelect: () => void, imgDims: { w: number, h: number } }) => {
+const BoundingBox = ({ ann, isSelected, onSelect, imgDims, onResizeStart }: { ann: Annotation, isSelected: boolean, onSelect: () => void, imgDims: { w: number, h: number }, onResizeStart: (id: string, corner: 'tl' | 'tr' | 'bl' | 'br', point: THREE.Vector3) => void }) => {
     const cls = CLASSES[parseInt(ann.classId)] || CLASSES[0];
     const color = cls.color;
     const halfW = imgDims.w / 2;
@@ -159,12 +171,20 @@ const BoundingBox = ({ ann, isSelected, onSelect, imgDims }: { ann: Annotation, 
             {/* Resize Handles (Visual Only for Demo) */}
             {isSelected && (
                 <>
-                    <mesh position={[ann.w/2, ann.h/2, 1]}>
-                        <boxGeometry args={[6, 6, 1]} />
+                    <mesh position={[ann.w/2, ann.h/2, 1]} onPointerDown={(e) => { e.stopPropagation(); onResizeStart(ann.id, 'br', e.point, e); }}>
+                        <boxGeometry args={[10, 10, 1]} />
                         <meshBasicMaterial color="white" />
                     </mesh>
-                    <mesh position={[-ann.w/2, -ann.h/2, 1]}>
-                        <boxGeometry args={[6, 6, 1]} />
+                    <mesh position={[-ann.w/2, -ann.h/2, 1]} onPointerDown={(e) => { e.stopPropagation(); onResizeStart(ann.id, 'tl', e.point, e); }}>
+                        <boxGeometry args={[10, 10, 1]} />
+                        <meshBasicMaterial color="white" />
+                    </mesh>
+                    <mesh position={[-ann.w/2, ann.h/2, 1]} onPointerDown={(e) => { e.stopPropagation(); onResizeStart(ann.id, 'bl', e.point, e); }}>
+                        <boxGeometry args={[10, 10, 1]} />
+                        <meshBasicMaterial color="white" />
+                    </mesh>
+                    <mesh position={[ann.w/2, -ann.h/2, 1]} onPointerDown={(e) => { e.stopPropagation(); onResizeStart(ann.id, 'tr', e.point, e); }}>
+                        <boxGeometry args={[10, 10, 1]} />
                         <meshBasicMaterial color="white" />
                     </mesh>
                 </>
@@ -183,12 +203,26 @@ const BoundingBox = ({ ann, isSelected, onSelect, imgDims }: { ann: Annotation, 
     );
 };
 
-const InteractionPlane = ({ width, height, onDraw }: { width: number, height: number, onDraw: (x: number, y: number) => void }) => {
+const InteractionPlane = ({ 
+    width, 
+    height, 
+    onPointerDown,
+    onPointerMove,
+    onPointerUp 
+}: { 
+    width: number, 
+    height: number, 
+    onPointerDown: (e: any) => void,
+    onPointerMove: (e: any) => void,
+    onPointerUp: (e: any) => void
+}) => {
     return (
         <mesh 
-            position={[0, 0, 1]} 
-            visible={false} 
-            onPointerDown={(e) => onDraw(e.point.x, e.point.y)}
+            position={[0, 0, -0.5]} 
+            visible={false}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
         >
             <planeGeometry args={[width, height]} />
             <meshBasicMaterial color="red" wireframe />
@@ -206,6 +240,7 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
   const [imageInput, setImageInput] = useState(PRESET_IMAGES[0].url);
   const [imgDims, setImgDims] = useState(PRESET_IMAGES[0].dims);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
+  const [draftBox, setDraftBox] = useState<Annotation | null>(null);
   
   // Store
   const { 
@@ -215,6 +250,9 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
       undo, redo 
   } = useLabelStore();
   const activePreset = activePresetId ? PRESET_IMAGES.find(p => p.id === activePresetId) : undefined;
+  const drawingRef = useRef<{ start: { x: number, y: number } | null }>({ start: null });
+  const draftRef = useRef<Annotation | null>(null);
+  const resizeRef = useRef<{ id: string, corner: 'tl' | 'tr' | 'bl' | 'br', anchor: { x: number, y: number } } | null>(null);
 
   // Initialize ONNX Model
   useEffect(() => {
@@ -316,6 +354,85 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
 
   const isCuratedPreset = activePresetId && PRESET_IMAGES.some(p => p.id === activePresetId && p.annotations);
 
+  const toImageCoords = (point: THREE.Vector3) => ({
+      x: point.x + imgDims.w / 2,
+      y: imgDims.h / 2 - point.y
+  });
+
+  const startResize = (id: string, corner: 'tl' | 'tr' | 'bl' | 'br', _point: THREE.Vector3, evt?: any) => {
+      const ann = annotations.find(a => a.id === id);
+      if (!ann) return;
+      if (evt?.target?.setPointerCapture) {
+          evt.target.setPointerCapture(evt.pointerId);
+      }
+      const anchorX = corner.includes('l') ? ann.x + ann.w / 2 : ann.x - ann.w / 2;
+      const anchorY = corner.includes('t') ? ann.y + ann.h / 2 : ann.y - ann.h / 2;
+      resizeRef.current = { id, corner, anchor: { x: anchorX, y: anchorY } };
+  };
+
+  const handlePointerDown = (e: any) => {
+      e.stopPropagation();
+      if (activeTool !== 'rect') return;
+      e.target.setPointerCapture(e.pointerId);
+      const { x, y } = toImageCoords(e.point);
+      drawingRef.current.start = { x, y };
+      const classIndex = Math.max(CLASSES.findIndex(c => c.id === currentClass), 0);
+      const draft = {
+        id: 'draft',
+        x,
+        y,
+        w: 1,
+        h: 1,
+        classId: classIndex.toString(),
+        confidence: 1
+      };
+      draftRef.current = draft;
+      setDraftBox(draft);
+  };
+
+  const handlePointerMove = (e: any) => {
+      if (resizeRef.current) {
+          const { id, corner, anchor } = resizeRef.current;
+          const target = annotations.find(a => a.id === id);
+          if (!target) return;
+          const { x: px, y: py } = toImageCoords(e.point);
+          const newW = Math.max(12, Math.abs(anchor.x - px));
+          const newH = Math.max(12, Math.abs(anchor.y - py));
+          const newX = (anchor.x + px) / 2;
+          const newY = (anchor.y + py) / 2;
+          updateAnnotation(id, { x: newX, y: newY, w: newW, h: newH });
+          return;
+      }
+      if (drawingRef.current.start && draftRef.current) {
+          const { x, y } = toImageCoords(e.point);
+          const start = drawingRef.current.start;
+          const centerX = (start.x + x) / 2;
+          const centerY = (start.y + y) / 2;
+          const w = Math.max(12, Math.abs(start.x - x));
+          const h = Math.max(12, Math.abs(start.y - y));
+          const updated = { ...draftRef.current, x: centerX, y: centerY, w, h };
+          draftRef.current = updated;
+          setDraftBox(updated);
+      }
+  };
+
+  const handlePointerUp = (e: any) => {
+      e.stopPropagation();
+      if (resizeRef.current) {
+          resizeRef.current = null;
+          return;
+      }
+      if (drawingRef.current.start && draftRef.current) {
+          const finalized = { ...draftRef.current, id: Math.random().toString(36).slice(2) };
+          addAnnotation(finalized);
+          selectAnnotation(finalized.id);
+          setDraftBox(null);
+          draftRef.current = null;
+          drawingRef.current.start = null;
+          setTool('select');
+      }
+  };
+
   // Inference Handler
   const handleInference = async () => {
       if (!imageUrl) return;
@@ -333,14 +450,12 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
              if (preset?.annotations) {
                  detected = preset.annotations;
              } else if (modelSession) {
-                 // Real Inference
                  const input = preprocess(img, 640, 640);
                  const tensor = new ort.Tensor('float32', input, [1, 3, 640, 640]);
                  const outputs = await modelSession.run({ images: tensor });
-                 detected = postprocess(outputs.output0, imgDims.w, imgDims.h, 0.5);
+                 detected = postprocess(outputs.output0, imgDims.w, imgDims.h, 0.45);
              } else {
-                 // Fallback Simulation
-                 await new Promise(r => setTimeout(r, 800)); // Fake delay
+                 await new Promise(r => setTimeout(r, 800));
                  detected = simulatedInference(imgDims.w, imgDims.h, CLASSES.length, imageUrl, confidenceThreshold);
              }
              
@@ -351,25 +466,6 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
              setIsModelLoading(false);
           }
       }
-  };
-
-  // Canvas Interactions
-  const handleDraw = (x: number, y: number) => {
-      if (activeTool !== 'rect') return;
-      
-      const newId = Math.random().toString(36).substr(2,9);
-      const classIndex = Math.max(CLASSES.findIndex(c => c.id === currentClass), 0);
-      addAnnotation({
-          id: newId,
-          x: x,
-          y: y,
-          w: 100, // Default size, would be drag logic in full impl
-          h: 100,
-          classId: classIndex.toString(),
-          confidence: 1.0
-      });
-      selectAnnotation(newId);
-      setTool('select'); // Auto switch back
   };
 
   const handleExport = () => {
@@ -411,7 +507,7 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
           </div>
        </div>
 
-       <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative z-0">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative z-0">
            
            {/* --- Scene Presets & Image Input --- */}
            <div className="w-full bg-[#111827] border-b border-white/10 px-4 py-4 flex flex-col lg:flex-row gap-3 items-start lg:items-center justify-between z-30">
@@ -524,15 +620,18 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
                 </div>
 
                <div className="flex-1 cursor-crosshair relative z-0">
-                   <Canvas>
+                   <Canvas
+                     onPointerMove={handlePointerMove}
+                     onPointerUp={handlePointerUp}
+                   >
                        <OrthographicCamera 
                           makeDefault 
                           position={[0, 0, 10]} 
                           zoom={zoom} 
-                          left={-window.innerWidth / 2} 
-                          right={window.innerWidth / 2} 
-                          top={window.innerHeight / 2} 
-                          bottom={-window.innerHeight / 2}
+                          left={-imgDims.w / 2} 
+                          right={imgDims.w / 2} 
+                          top={imgDims.h / 2} 
+                          bottom={-imgDims.h / 2}
                        />
                        
                        {/* Lighting (Basic) */}
@@ -549,13 +648,28 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
                                    isSelected={selectedId === ann.id}
                                    onSelect={() => selectAnnotation(ann.id)}
                                    imgDims={imgDims}
+                                   onResizeStart={startResize}
                                />
                            ))}
+                           {/* Draft box while drawing */}
+                           {draftBox && (
+                             <BoundingBox 
+                               ann={draftBox} 
+                               isSelected={false} 
+                               onSelect={() => {}} 
+                               imgDims={imgDims}
+                               onResizeStart={() => {}}
+                             />
+                           )}
 
                            {/* Interaction Layer */}
-                           {activeTool === 'rect' && (
-                               <InteractionPlane width={imgDims.w} height={imgDims.h} onDraw={handleDraw} />
-                           )}
+                           <InteractionPlane 
+                             width={imgDims.w} 
+                             height={imgDims.h} 
+                             onPointerDown={handlePointerDown}
+                             onPointerMove={handlePointerMove}
+                             onPointerUp={handlePointerUp}
+                           />
                        </group>
                    </Canvas>
                </div>
