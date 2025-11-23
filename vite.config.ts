@@ -9,6 +9,8 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
       },
+      // Use relative paths so builds work on sub-path hosting (e.g. GitHub Pages)
+      base: './',
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
