@@ -1,6 +1,20 @@
 
 import * as ort from 'onnxruntime-web';
 
+// Simple deterministic PRNG to keep simulated detections stable per image URL
+const seededRandom = (seed: string) => {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) {
+    h = Math.imul(31, h) + seed.charCodeAt(i) | 0;
+  }
+  return () => {
+    h ^= h << 13;
+    h ^= h >> 17;
+    h ^= h << 5;
+    return Math.abs(h % 10000) / 10000;
+  };
+};
+
 // Helper: Preprocess Image for YOLOv8 (640x640, Normalize 0-1)
 export const preprocess = (image: HTMLImageElement, modelWidth: number, modelHeight: number): Float32Array => {
   const canvas = document.createElement('canvas');
@@ -111,19 +125,29 @@ export const postprocess = (
 };
 
 // Fallback Simulation for when WASM/Model fails (CORS issues common in demos)
-export const simulatedInference = (width: number, height: number) => {
-   const count = 3 + Math.floor(Math.random() * 5);
+export const simulatedInference = (
+  width: number, 
+  height: number, 
+  classCount: number = 6, 
+  seedKey: string = 'demo',
+  minConfidence = 0.55
+) => {
+   const rand = seededRandom(seedKey);
+   const count = 4 + Math.floor(rand() * 5);
    const boxes = [];
+
    for(let i=0; i<count; i++) {
-       const w = 50 + Math.random() * 100;
-       const h = 50 + Math.random() * 100;
-       const x = w/2 + Math.random() * (width - w);
-       const y = h/2 + Math.random() * (height - h);
+       const w = 80 + rand() * 140;
+       const h = 60 + rand() * 160;
+       const margin = 40;
+       const x = w/2 + margin + rand() * (width - w - margin * 2);
+       const y = h/2 + margin + rand() * (height - h - margin * 2);
+       const score = minConfidence + rand() * (0.4);
        boxes.push({
            x, y, w, h,
-           score: 0.6 + Math.random() * 0.39,
-           classId: Math.floor(Math.random() * 4) // 4 demo classes
+           score,
+           classId: Math.floor(rand() * classCount)
        });
    }
    return boxes;
-}
+};

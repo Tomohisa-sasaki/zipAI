@@ -8,7 +8,7 @@ import * as ort from 'onnxruntime-web';
 import { 
   ArrowLeft, Crosshair, Zap, Layers, Search, Download, 
   ZoomIn, ZoomOut, Undo, Redo, MousePointer2, BoxSelect, 
-  Eye, Trash2, Save, Keyboard, RefreshCw, AlertCircle
+  Eye, Trash2, Save, Keyboard, RefreshCw, AlertCircle, Sliders, Sparkles, Image as ImageIcon
 } from 'lucide-react';
 import { Language } from '../../types';
 import { useLabelStore, Annotation } from '../../store/labelStore';
@@ -20,13 +20,89 @@ interface Props {
 
 // --- Constants & Config ---
 const CLASSES = [
-    { id: 'car', label: 'Car', color: '#3b82f6' },
     { id: 'person', label: 'Person', color: '#ef4444' },
-    { id: 'truck', label: 'Truck', color: '#f59e0b' },
-    { id: 'bicycle', label: 'Bicycle', color: '#10b981' }
+    { id: 'car', label: 'Car', color: '#2563eb' },
+    { id: 'truck', label: 'Truck', color: '#f97316' },
+    { id: 'bus', label: 'Bus', color: '#a855f7' },
+    { id: 'bicycle', label: 'Bicycle', color: '#22c55e' },
+    { id: 'motorcycle', label: 'Motorcycle', color: '#0ea5e9' },
+    { id: 'traffic_light', label: 'Traffic Light', color: '#fbbf24' },
+    { id: 'stop_sign', label: 'Stop Sign', color: '#dc2626' },
+    { id: 'backpack', label: 'Backpack', color: '#8b5cf6' },
+    { id: 'dog', label: 'Dog', color: '#eab308' },
 ];
 
+const COCO_TO_APP_CLASS: Record<number, string> = {
+    0: 'person',
+    1: 'bicycle',
+    2: 'car',
+    3: 'motorcycle',
+    5: 'bus',
+    7: 'truck',
+    9: 'traffic_light',
+    11: 'stop_sign',
+    18: 'dog',
+    24: 'backpack'
+};
+
+const CURATED_YARD_SVG = encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#grad)" />
+  <rect x="40" y="320" width="380" height="170" rx="16" fill="#fb923c" opacity="0.95"/>
+  <rect x="460" y="310" width="280" height="150" rx="18" fill="#38bdf8" opacity="0.92"/>
+  <rect x="780" y="300" width="140" height="220" rx="20" fill="#f472b6" opacity="0.9"/>
+  <rect x="950" y="380" width="230" height="140" rx="18" fill="#22c55e" opacity="0.9"/>
+  <rect x="1120" y="160" width="40" height="170" rx="8" fill="#fbbf24" opacity="0.9"/>
+  <rect x="820" y="340" width="52" height="80" rx="12" fill="#a855f7" opacity="0.9"/>
+  <circle cx="240" cy="420" r="12" fill="#334155"/>
+  <circle cx="560" cy="420" r="12" fill="#334155"/>
+  <circle cx="1030" cy="470" r="12" fill="#334155"/>
+  <rect x="0" y="520" width="1280" height="120" fill="#0b1220" opacity="0.6"/>
+  <text x="60" y="140" fill="#9ca3af" font-size="32" font-family="Arial">Curated Scene: Logistics Yard</text>
+</svg>
+`);
+
+type PresetImage = {
+    id: string;
+    title: string;
+    description: string;
+    url: string;
+    dims: { w: number, h: number };
+    annotations?: Array<{ classId: string; x: number; y: number; w: number; h: number; confidence: number; }>;
+};
+
+const PRESET_IMAGES: PresetImage[] = [
+    {
+        id: 'logistics-yard',
+        title: 'Logistics Yard (curated)',
+        description: 'Synthetic, high-contrast scene for stable benchmarking.',
+        url: `data:image/svg+xml;utf8,${CURATED_YARD_SVG}`,
+        dims: { w: 1280, h: 720 },
+        annotations: [
+            { classId: 'truck', x: 230, y: 405, w: 380, h: 170, confidence: 0.97 },
+            { classId: 'bus', x: 600, y: 385, w: 280, h: 150, confidence: 0.94 },
+            { classId: 'person', x: 850, y: 410, w: 52, h: 80, confidence: 0.86 },
+            { classId: 'bicycle', x: 1065, y: 450, w: 230, h: 140, confidence: 0.91 },
+            { classId: 'traffic_light', x: 1140, y: 245, w: 40, h: 170, confidence: 0.88 },
+            { classId: 'backpack', x: 860, y: 370, w: 40, h: 50, confidence: 0.8 }
+        ]
+    }
+];
+
+const DEFAULT_PRESET_ID = PRESET_IMAGES[0].id;
+
 const MODEL_PATH = 'https://raw.githubusercontent.com/Hyuto/yolo-web/master/public/model.onnx'; // Reliable demo model
+
+const findClassIndex = (classId: string) => {
+    const idx = CLASSES.findIndex(c => c.id === classId);
+    return idx >= 0 ? idx : 0;
+};
 
 // --- 3D Components ---
 
@@ -56,12 +132,14 @@ const BackgroundImage = ({ url, onLoad }: { url: string, onLoad: (w: number, h: 
   );
 };
 
-const BoundingBox = ({ ann, isSelected, onSelect }: { ann: Annotation, isSelected: boolean, onSelect: () => void }) => {
+const BoundingBox = ({ ann, isSelected, onSelect, imgDims }: { ann: Annotation, isSelected: boolean, onSelect: () => void, imgDims: { w: number, h: number } }) => {
     const cls = CLASSES[parseInt(ann.classId)] || CLASSES[0];
     const color = cls.color;
+    const halfW = imgDims.w / 2;
+    const halfH = imgDims.h / 2;
     
     return (
-        <group position={[ann.x - (1280/2), (720/2) - ann.y, 0]}> {/* Center offset logic assuming 1280x720 space for simple mapping */}
+        <group position={[ann.x - halfW, halfH - ann.y, 0]}>
             {/* The Box Line */}
             <mesh position={[0, 0, 0]} onClick={(e) => { e.stopPropagation(); onSelect(); }}>
                 <ringGeometry args={[0, 100, 4]} /> 
@@ -123,8 +201,11 @@ const InteractionPlane = ({ width, height, onDraw }: { width: number, height: nu
 const DataLabelingPage: React.FC<Props> = ({ lang }) => {
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [modelSession, setModelSession] = useState<ort.InferenceSession | null>(null);
-  const [imageUrl, setImageUrl] = useState("https://images.unsplash.com/photo-1566008885218-90abf9200ddb?q=80&w=1280&auto=format&fit=crop");
-  const [imgDims, setImgDims] = useState({ w: 1280, h: 720 });
+  const [activePresetId, setActivePresetId] = useState<string | null>(DEFAULT_PRESET_ID);
+  const [imageUrl, setImageUrl] = useState(PRESET_IMAGES[0].url);
+  const [imageInput, setImageInput] = useState(PRESET_IMAGES[0].url);
+  const [imgDims, setImgDims] = useState(PRESET_IMAGES[0].dims);
+  const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
   
   // Store
   const { 
@@ -133,6 +214,7 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
       addAnnotation, updateAnnotation, removeAnnotation, setAnnotations,
       undo, redo 
   } = useLabelStore();
+  const activePreset = activePresetId ? PRESET_IMAGES.find(p => p.id === activePresetId) : undefined;
 
   // Initialize ONNX Model
   useEffect(() => {
@@ -174,6 +256,66 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
       return () => window.removeEventListener('keydown', handleKey);
   }, [selectedId, zoom]);
 
+  // Apply curated preset scene for a stable, high-precision demo baseline
+  useEffect(() => {
+      if (!activePresetId) return;
+      const preset = PRESET_IMAGES.find(p => p.id === activePresetId);
+      if (!preset) return;
+
+      setImageUrl(preset.url);
+      setImageInput(preset.url);
+      setImgDims(preset.dims);
+      setZoom(1);
+
+      if (preset.annotations) {
+          const curated = preset.annotations.map(ann => ({
+              id: Math.random().toString(36).substr(2, 9),
+              x: ann.x,
+              y: ann.y,
+              w: ann.w,
+              h: ann.h,
+              classId: findClassIndex(ann.classId).toString(),
+              confidence: ann.confidence
+          }));
+          setAnnotations(curated);
+      }
+  }, [activePresetId, setAnnotations, setZoom]);
+
+  const mapModelClassToApp = (cls: number | string) => {
+      if (typeof cls === 'number') {
+          const mapped = COCO_TO_APP_CLASS[cls];
+          if (mapped) return findClassIndex(mapped).toString();
+          return '0';
+      }
+      return findClassIndex(cls).toString();
+  };
+
+  const applyDetections = (detected: any[]) => {
+      const mapped = detected
+        .map((d: any) => ({
+            id: Math.random().toString(36).substr(2, 9),
+            x: d.x,
+            y: d.y,
+            w: d.w,
+            h: d.h,
+            classId: mapModelClassToApp(d.classId),
+            confidence: d.score ?? d.confidence ?? 0.9
+        }))
+        .filter((d: Annotation) => d.confidence >= confidenceThreshold)
+        .sort((a: Annotation, b: Annotation) => b.confidence - a.confidence);
+      setAnnotations(mapped);
+  };
+
+  const refineExistingAnnotations = () => {
+      const filtered = annotations
+        .map(a => ({ ...a }))
+        .filter(a => a.confidence >= confidenceThreshold)
+        .sort((a, b) => b.confidence - a.confidence);
+      setAnnotations(filtered);
+  };
+
+  const isCuratedPreset = activePresetId && PRESET_IMAGES.some(p => p.id === activePresetId && p.annotations);
+
   // Inference Handler
   const handleInference = async () => {
       if (!imageUrl) return;
@@ -186,7 +328,11 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
       img.onload = async () => {
           try {
              let detected = [];
-             if (modelSession) {
+             const preset = PRESET_IMAGES.find(p => p.url === imageUrl);
+
+             if (preset?.annotations) {
+                 detected = preset.annotations;
+             } else if (modelSession) {
                  // Real Inference
                  const input = preprocess(img, 640, 640);
                  const tensor = new ort.Tensor('float32', input, [1, 3, 640, 640]);
@@ -195,18 +341,10 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
              } else {
                  // Fallback Simulation
                  await new Promise(r => setTimeout(r, 800)); // Fake delay
-                 detected = simulatedInference(imgDims.w, imgDims.h);
+                 detected = simulatedInference(imgDims.w, imgDims.h, CLASSES.length, imageUrl, confidenceThreshold);
              }
-
-             // Convert to Annotation Format
-             const newAnns = detected.map((d: any) => ({
-                 id: Math.random().toString(36).substr(2, 9),
-                 x: d.x, y: d.y, w: d.w, h: d.h,
-                 classId: d.classId !== undefined ? d.classId.toString() : Math.floor(Math.random()*4).toString(),
-                 confidence: d.score || 0.9
-             }));
              
-             setAnnotations(newAnns);
+             applyDetections(detected);
           } catch (e) {
              console.error("Inference error", e);
           } finally {
@@ -220,13 +358,14 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
       if (activeTool !== 'rect') return;
       
       const newId = Math.random().toString(36).substr(2,9);
+      const classIndex = Math.max(CLASSES.findIndex(c => c.id === currentClass), 0);
       addAnnotation({
           id: newId,
           x: x,
           y: y,
           w: 100, // Default size, would be drag logic in full impl
           h: 100,
-          classId: CLASSES.findIndex(c => c.id === currentClass).toString(),
+          classId: classIndex.toString(),
           confidence: 1.0
       });
       selectAnnotation(newId);
@@ -273,6 +412,52 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
        </div>
 
        <div className="flex-1 flex flex-col md:flex-row overflow-hidden relative z-0">
+           
+           {/* --- Scene Presets & Image Input --- */}
+           <div className="w-full bg-[#111827] border-b border-white/10 px-4 py-4 flex flex-col lg:flex-row gap-3 items-start lg:items-center justify-between z-30">
+              <div className="flex items-center gap-3 text-xs text-gray-400">
+                 <Sparkles size={16} className="text-mncc-primary" />
+                 <div className="flex flex-col">
+                    <span className="font-semibold text-white">Curated scenes & custom images</span>
+                    <span className="text-gray-500">Use curated presets for stable accuracy or bring your own URL.</span>
+                 </div>
+                 {isCuratedPreset && (
+                   <span className="px-2 py-1 rounded-full bg-mncc-primary/20 text-mncc-primary font-bold text-[10px] border border-mncc-primary/40">High-Precision Mode</span>
+                 )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                 {PRESET_IMAGES.map(preset => (
+                    <button
+                      key={preset.id}
+                      onClick={() => setActivePresetId(preset.id)}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition-all duration-200 flex items-center gap-2 ${
+                        activePresetId === preset.id 
+                          ? 'bg-mncc-primary/20 border-mncc-primary/60 text-white shadow-[0_6px_30px_rgba(56,124,109,0.25)]' 
+                          : 'bg-white/5 border-white/10 text-gray-300 hover:border-white/30'
+                      }`}
+                    >
+                      <ImageIcon size={14} />
+                      {preset.title}
+                    </button>
+                 ))}
+                 <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2">
+                    <ImageIcon size={14} className="text-gray-400" />
+                    <input
+                      value={imageInput}
+                      onChange={(e) => setImageInput(e.target.value)}
+                      onBlur={() => { setActivePresetId(null); setImageUrl(imageInput); setAnnotations([]); }}
+                      placeholder="Paste any image URL"
+                      className="bg-transparent text-xs text-white placeholder:text-gray-500 outline-none w-56"
+                    />
+                    <button 
+                      onClick={() => { setActivePresetId(null); setImageUrl(imageInput); setAnnotations([]); }}
+                      className="text-[11px] font-bold text-mncc-primary hover:text-white transition-colors"
+                    >
+                      Load
+                    </button>
+                 </div>
+              </div>
+           </div>
            
            {/* --- Toolbar (Left on Desktop, Bottom on Mobile) --- */}
            <div className="w-full md:w-14 h-14 md:h-full order-last md:order-first bg-[#1e293b] border-t md:border-t-0 md:border-r border-white/10 flex flex-row md:flex-col items-center justify-center md:justify-start py-0 md:py-4 gap-4 shrink-0 z-20 overflow-x-auto">
@@ -326,6 +511,17 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
                        {isModelLoading ? 'Processing...' : 'Run Auto-Detect'}
                    </button>
                </div>
+               <div className="absolute top-4 left-4 z-10 flex flex-col gap-2 text-[11px] text-gray-200">
+                   <div className="px-3 py-2 rounded-lg bg-black/30 border border-white/10 backdrop-blur">
+                      <span className="font-semibold text-white">{activePreset ? activePreset.title : 'Custom URL'}</span>
+                      <span className="block text-[10px] text-gray-400">{activePreset?.description || 'Bring any image to test.'}</span>
+                   </div>
+                   <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-black/30 border border-white/10 backdrop-blur">
+                      <Sliders size={12} className="text-mncc-primary" />
+                      <span>Confidence ≥ {(confidenceThreshold * 100).toFixed(0)}%</span>
+                      <span className="text-gray-500">• {annotations.length} boxes</span>
+                   </div>
+                </div>
 
                <div className="flex-1 cursor-crosshair relative z-0">
                    <Canvas>
@@ -352,6 +548,7 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
                                    ann={ann} 
                                    isSelected={selectedId === ann.id}
                                    onSelect={() => selectAnnotation(ann.id)}
+                                   imgDims={imgDims}
                                />
                            ))}
 
@@ -397,7 +594,41 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cls.color }}></div>
                                {cls.label}
                            </button>
-                       ))}
+                           ))}
+                   </div>
+               </div>
+
+               {/* Quality Controls */}
+               <div className="p-5 border-b border-white/10">
+                   <h3 className="text-xs font-bold text-white uppercase mb-3 flex items-center gap-2">
+                       <Sliders size={14} className="text-mncc-primary" /> Quality Controls
+                   </h3>
+                   <div className="flex items-center gap-3">
+                       <input 
+                         type="range" 
+                         min={0.3} 
+                         max={0.9} 
+                         step={0.01} 
+                         value={confidenceThreshold} 
+                         onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))} 
+                         className="flex-1 accent-mncc-primary"
+                       />
+                       <span className="text-xs text-white font-bold">{(confidenceThreshold * 100).toFixed(0)}%</span>
+                   </div>
+                   <p className="text-[11px] text-gray-500 mt-2">Filter low-confidence boxes and re-run to tighten precision.</p>
+                   <div className="flex gap-2 mt-3">
+                       <button 
+                         onClick={refineExistingAnnotations}
+                         className="flex-1 px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold border border-white/10 transition-colors"
+                       >
+                         Refine current boxes
+                       </button>
+                       <button 
+                         onClick={() => setActivePresetId(DEFAULT_PRESET_ID)}
+                         className="px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-gray-300 text-xs hover:text-white transition-colors"
+                       >
+                         Reset
+                       </button>
                    </div>
                </div>
 
@@ -406,7 +637,7 @@ const DataLabelingPage: React.FC<Props> = ({ lang }) => {
                    <h3 className="px-3 py-2 text-xs font-bold text-gray-500 uppercase">Annotations</h3>
                    <div className="space-y-1">
                        {annotations.map(ann => {
-                           const cls = CLASSES.find(c => c.id === ann.classId) || CLASSES[0];
+                           const cls = CLASSES[parseInt(ann.classId)] || CLASSES[0];
                            return (
                                <div 
                                    key={ann.id}
